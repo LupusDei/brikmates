@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bd init:*)",
+      "Bash(npx mastra build)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
