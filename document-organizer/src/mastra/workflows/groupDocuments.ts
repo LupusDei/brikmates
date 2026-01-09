@@ -66,25 +66,27 @@ export async function organizeDocuments(folderPath: string): Promise<GroupingRes
     console.log(`Processing (${i + 1}/${readResult.documents.length}): ${doc.filename}`);
     console.log(`${'='.repeat(50)}`);
 
-    const { doc: processed, fromCache } = await processDocument(
+    const result = await processDocument(
       doc.id,
       doc.filename,
       typeof doc.content === 'string' ? doc.content : JSON.stringify(doc.content),
       cache
     );
-    processedDocs.push(processed);
+    processedDocs.push(result.doc);
 
-    if (fromCache) {
+    if (result.fromCache) {
       cacheHits++;
       console.log(`  [CACHED] Using cached results`);
+    } else if (result.chunkingInfo?.wasChunked) {
+      console.log(`  [CHUNKED] Processed ${result.chunkingInfo.chunksProcessed}/${result.chunkingInfo.totalChunks} chunks`);
     }
 
-    console.log(`  Type: ${processed.classification.documentType}`);
-    console.log(`  Lessor: ${processed.extraction.lessor}`);
-    console.log(`  Address: ${processed.extraction.address}`);
+    console.log(`  Type: ${result.doc.classification.documentType}`);
+    console.log(`  Lessor: ${result.doc.extraction.lessor}`);
+    console.log(`  Address: ${result.doc.extraction.address}`);
 
     // Skip rate limit delay for cached results or last document
-    if (!fromCache && i < readResult.documents.length - 1) {
+    if (!result.fromCache && i < readResult.documents.length - 1) {
       console.log(`  Waiting ${RATE_LIMIT_DELAY_MS / 1000}s before next document...`);
       await sleep(RATE_LIMIT_DELAY_MS);
     }
