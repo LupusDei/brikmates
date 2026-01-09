@@ -11,6 +11,7 @@ import { LibSQLStore } from '@mastra/libsql';
 // Import agents
 import { classifierAgent } from './agents/classifier.js';
 import { extractorAgent } from './agents/extractor.js';
+import { documentOrganizerAgent } from './agents/documentOrganizer.js';
 
 // Import tools (exported for use in workflows)
 export { readDocsTool } from './tools/readFiles.js';
@@ -32,11 +33,15 @@ export {
   type ProcessedDocument,
 } from './workflows/groupDocuments.js';
 
+// Export the document organizer agent for direct usage
+export { documentOrganizerAgent } from './agents/documentOrganizer.js';
+
 // Configure Mastra instance with observability
 export const mastra = new Mastra({
   agents: {
     classifierAgent,
     extractorAgent,
+    documentOrganizerAgent,
   },
   workflows: {
     organizeDocumentsWorkflow,
