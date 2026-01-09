@@ -14,7 +14,14 @@ import { extractorAgent } from './agents/extractor.js';
 // Import tools (exported for use in workflows)
 export { readDocsTool } from './tools/readFiles.js';
 
-// Import and export workflow
+// Import workflows
+import { organizeDocumentsWorkflow } from './workflows/organizeDocuments.js';
+
+// Re-export workflow and types
+export { organizeDocumentsWorkflow } from './workflows/organizeDocuments.js';
+export type { OrganizeDocumentsInput, OrganizeDocumentsOutput } from './workflows/organizeDocuments.js';
+
+// Also export the legacy function-based workflow for CLI usage
 export {
   organizeDocuments,
   getSimplifiedOutput,
@@ -29,6 +36,9 @@ export const mastra = new Mastra({
   agents: {
     classifierAgent,
     extractorAgent,
+  },
+  workflows: {
+    organizeDocumentsWorkflow,
   },
   logger: new PinoLogger({
     name: 'document-organizer',
