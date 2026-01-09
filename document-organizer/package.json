@@ -21,6 +21,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.0",
     "@mastra/core": "^0.24.0",
+    "@mastra/libsql": "^0.16.4",
     "@mastra/loggers": "^0.10.16",
     "dotenv": "^16.4.5",
     "string-similarity": "^4.0.4",
