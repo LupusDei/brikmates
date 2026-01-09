@@ -1,15 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { organizeDocuments, getSimplifiedOutput } from '../workflows/groupDocuments.js';
-
-// Schema for lease file structure in output
-const leaseFileSchema = z.object({
-  baseLease: z.string().nullable(),
-  amendments: z.array(z.string()),
-  commencements: z.array(z.string()),
-  deliveries: z.array(z.string()),
-  others: z.array(z.string()),
-});
+import { leaseFileSchema, statsSchema, hierarchySchema } from '../utils/types.js';
 
 export const organizeDocsTool = createTool({
   id: 'organize_documents',
@@ -28,15 +20,9 @@ Use this when the user wants to:
   }),
   outputSchema: z.object({
     success: z.boolean(),
-    hierarchy: z.record(z.string(), z.record(z.string(), leaseFileSchema)).optional(),
+    hierarchy: hierarchySchema.optional(),
     ungrouped: z.array(z.string()).optional(),
-    stats: z.object({
-      totalDocuments: z.number(),
-      groupedDocuments: z.number(),
-      ungroupedDocuments: z.number(),
-      lessors: z.number(),
-      addresses: z.number(),
-    }).optional(),
+    stats: statsSchema.optional(),
     error: z.string().optional(),
   }),
   execute: async ({ context }) => {
