@@ -3,6 +3,7 @@ import { classifyDocument, ClassificationResult, DocumentType } from '../agents/
 import { extractKeys, ExtractionResult } from '../agents/extractor.js';
 import { readDocsTool } from '../tools/readFiles.js';
 import { DocumentCache } from '../utils/cache.js';
+import { saveGroupingResult } from '../utils/leaseQuery.js';
 
 // Similarity threshold for fuzzy matching (80%)
 const SIMILARITY_THRESHOLD = 0.8;
@@ -283,7 +284,13 @@ export async function organizeDocuments(folderPath: string): Promise<GroupingRes
   console.log(`\nCache stats: ${cacheHits}/${readResult.documents.length} documents from cache`);
 
   // Group the processed documents
-  return groupDocuments(processedDocs);
+  const result = groupDocuments(processedDocs);
+
+  // Persist grouping result for later querying
+  saveGroupingResult(result);
+  console.log('Grouping result saved for querying');
+
+  return result;
 }
 
 /**
