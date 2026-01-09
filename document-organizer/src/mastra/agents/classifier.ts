@@ -46,7 +46,7 @@ Always respond with a JSON object containing:
 - documentType: one of the categories above
 - confidence: "high", "medium", or "low"
 - reasoning: brief explanation for your classification`,
-  model: anthropic('claude-3-5-sonnet-20241022'),
+  model: anthropic('claude-3-7-sonnet-20250219'),
 });
 
 /**

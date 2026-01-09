@@ -1,3 +1,9 @@
+// Polyfill crypto for Node.js compatibility
+import { webcrypto } from 'node:crypto';
+if (!globalThis.crypto) {
+  globalThis.crypto = webcrypto;
+}
+
 import { Mastra } from '@mastra/core';
 import { PinoLogger } from '@mastra/loggers';
 

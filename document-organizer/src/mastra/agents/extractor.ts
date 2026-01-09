@@ -75,7 +75,7 @@ For amendments and related documents:
 
 Be precise and extract exactly what is written in the document.
 If a field cannot be found, use "unknown" as the value.`,
-  model: anthropic('claude-3-5-sonnet-20241022'),
+  model: anthropic('claude-3-7-sonnet-20250219'),
 });
 
 // Extract keys from document text with structured output

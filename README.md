@@ -62,6 +62,20 @@ Your program should output a clear structure showing which documents belong toge
 
 Use whatever language, tools, and AI assistants you're comfortable with. We use TypeScript/Node, but use what you know.
 
+### Environment Setup
+
+This project requires **Node.js v20.19.6**. To set up your environment:
+
+```bash
+# Install and use the correct Node.js version
+nvm install 20.19.6
+nvm use 20.19.6
+
+# Or from the project root, nvm will automatically use the correct version
+cd /path/to/brikmate
+nvm use  # This reads the .nvmrc file
+```
+
 If you want to use LLM APIs (OpenAI, Anthropic, etc.), let us know and we can provide API keys.
 
 ## Example Output
