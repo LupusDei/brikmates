@@ -6,6 +6,12 @@ import { readDocsTool } from '../tools/readFiles.js';
 // Similarity threshold for fuzzy matching (80%)
 const SIMILARITY_THRESHOLD = 0.8;
 
+// Rate limit delay between documents (30 seconds)
+const RATE_LIMIT_DELAY_MS = 30000;
+
+// Helper to sleep for a given number of milliseconds
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // Processed document with classification and extraction results
 export interface ProcessedDocument {
   id: string;
@@ -207,15 +213,28 @@ export async function organizeDocuments(folderPath: string): Promise<GroupingRes
 
   // Process documents sequentially to avoid rate limits
   const processedDocs: ProcessedDocument[] = [];
-  for (const doc of readResult.documents) {
-    console.log(`Processing document: ${doc.filename}`);
+  for (let i = 0; i < readResult.documents.length; i++) {
+    const doc = readResult.documents[i];
+    console.log(`\n${'='.repeat(50)}`);
+    console.log(`Processing (${i + 1}/${readResult.documents.length}): ${doc.filename}`);
+    console.log(`${'='.repeat(50)}`);
+
     const processed = await processDocument(
       doc.id,
       doc.filename,
       typeof doc.content === 'string' ? doc.content : JSON.stringify(doc.content)
     );
     processedDocs.push(processed);
-    console.log(`  -> Type: ${processed.classification.documentType}, Lessor: ${processed.extraction.lessor}`);
+
+    console.log(`  Type: ${processed.classification.documentType}`);
+    console.log(`  Lessor: ${processed.extraction.lessor}`);
+    console.log(`  Address: ${processed.extraction.address}`);
+
+    // Sleep between documents to avoid rate limiting (skip for last document)
+    if (i < readResult.documents.length - 1) {
+      console.log(`  Waiting ${RATE_LIMIT_DELAY_MS / 1000}s before next document...`);
+      await sleep(RATE_LIMIT_DELAY_MS);
+    }
   }
 
   // Group the processed documents

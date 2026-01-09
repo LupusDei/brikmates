@@ -8,9 +8,22 @@ import { readDocsTool } from '../tools/readFiles.js';
 // Similarity threshold for fuzzy matching (80%)
 const SIMILARITY_THRESHOLD = 0.8;
 
+// Rate limit delay between documents (30 seconds)
+const RATE_LIMIT_DELAY_MS = 30000;
+
+// Helper to sleep for a given number of milliseconds
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // Schema for workflow input
 const workflowInputSchema = z.object({
   folderPath: z.string().describe('Path to folder containing documents'),
+});
+
+// Schema for a single document (input to foreach)
+const documentSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  content: z.string(),
 });
 
 // Schema for a processed document
@@ -43,20 +56,15 @@ const workflowOutputSchema = z.object({
   }),
 });
 
-// Step 1: Read documents from folder
+// Step 1: Read documents from folder and return array for foreach
 const readDocumentsStep = createStep({
   id: 'read-documents',
   description: 'Read all documents from the specified folder',
   inputSchema: workflowInputSchema,
-  outputSchema: z.object({
-    documents: z.array(z.object({
-      id: z.string(),
-      filename: z.string(),
-      content: z.string(),
-    })),
-    count: z.number(),
-  }),
+  outputSchema: z.array(documentSchema),
   execute: async ({ inputData }) => {
+    console.log(`Reading documents from: ${inputData.folderPath}`);
+
     const result = await readDocsTool.execute({
       context: { folderPath: inputData.folderPath },
       runId: 'workflow-read',
@@ -64,56 +72,52 @@ const readDocumentsStep = createStep({
       runtimeContext: {} as any,
     });
 
-    return {
-      documents: result.documents.map(doc => ({
-        id: doc.id,
-        filename: doc.filename,
-        content: typeof doc.content === 'string' ? doc.content : JSON.stringify(doc.content),
-      })),
-      count: result.count,
-    };
+    console.log(`Found ${result.count} documents to process`);
+
+    return result.documents.map(doc => ({
+      id: doc.id,
+      filename: doc.filename,
+      content: typeof doc.content === 'string' ? doc.content : JSON.stringify(doc.content),
+    }));
   },
 });
 
-// Step 2: Process documents sequentially (one at a time to avoid rate limits)
-const processDocumentsStep = createStep({
-  id: 'process-documents',
-  description: 'Classify and extract keys from all documents (sequential to avoid rate limits)',
-  inputSchema: z.object({
-    documents: z.array(z.object({
-      id: z.string(),
-      filename: z.string(),
-      content: z.string(),
-    })),
-    count: z.number(),
-  }),
-  outputSchema: z.object({
-    processedDocs: z.array(processedDocumentSchema),
-  }),
+// Step 2: Process a SINGLE document (used with foreach)
+// This step is executed once per document, with visibility in Mastra Studio
+const processDocumentStep = createStep({
+  id: 'process-document',
+  description: 'Classify and extract keys from a single document',
+  inputSchema: documentSchema,
+  outputSchema: processedDocumentSchema,
   execute: async ({ inputData }) => {
-    const processedDocs: z.infer<typeof processedDocumentSchema>[] = [];
+    console.log(`\n${'='.repeat(50)}`);
+    console.log(`Processing: ${inputData.filename}`);
+    console.log(`${'='.repeat(50)}`);
 
-    // Process documents one at a time to avoid rate limits
-    for (const doc of inputData.documents) {
-      console.log(`Processing document: ${doc.filename}`);
+    // Run classification and extraction in parallel for this document
+    const [classification, extraction] = await Promise.all([
+      classifyDocument(inputData.content),
+      extractKeys(inputData.content),
+    ]);
 
-      // Classification and extraction can still run in parallel for each doc
-      const [classification, extraction] = await Promise.all([
-        classifyDocument(doc.content),
-        extractKeys(doc.content),
-      ]);
-
-      processedDocs.push({
-        id: doc.id,
-        filename: doc.filename,
-        classification,
-        extraction,
-      });
-
-      console.log(`  -> Type: ${classification.documentType}, Lessor: ${extraction.lessor}`);
+    console.log(`  Type: ${classification.documentType} (${classification.confidence})`);
+    console.log(`  Lessor: ${extraction.lessor}`);
+    console.log(`  Address: ${extraction.address}`);
+    console.log(`  Tenant: ${extraction.tenant}`);
+    if (extraction.baseReference) {
+      console.log(`  Base Reference: ${extraction.baseReference}`);
     }
 
-    return { processedDocs };
+    // Sleep to avoid rate limiting
+    console.log(`  Waiting ${RATE_LIMIT_DELAY_MS / 1000}s before next document...`);
+    await sleep(RATE_LIMIT_DELAY_MS);
+
+    return {
+      id: inputData.id,
+      filename: inputData.filename,
+      classification,
+      extraction,
+    };
   },
 });
 
@@ -131,15 +135,15 @@ function findFuzzyMatch(needle: string, haystack: string[]): string | null {
 const groupDocumentsStep = createStep({
   id: 'group-documents',
   description: 'Group documents by lessor, address, and document type',
-  inputSchema: z.object({
-    processedDocs: z.array(processedDocumentSchema),
-  }),
+  inputSchema: z.array(processedDocumentSchema),
   outputSchema: workflowOutputSchema,
   execute: async ({ inputData }) => {
+    console.log(`\nGrouping ${inputData.length} processed documents...`);
+
     const hierarchy: Record<string, Record<string, z.infer<typeof leaseFileSchema>>> = {};
     const ungrouped: string[] = [];
 
-    for (const doc of inputData.processedDocs) {
+    for (const doc of inputData) {
       const { lessor, address } = doc.extraction;
 
       // Skip documents with unknown lessor or address
@@ -211,11 +215,16 @@ const groupDocumentsStep = createStep({
       }
     }
 
+    console.log(`Grouped into ${Object.keys(hierarchy).length} lessors, ${addressCount} addresses`);
+    if (ungrouped.length > 0) {
+      console.log(`${ungrouped.length} documents could not be grouped`);
+    }
+
     return {
       hierarchy,
       ungrouped,
       stats: {
-        totalDocuments: inputData.processedDocs.length,
+        totalDocuments: inputData.length,
         groupedDocuments: groupedCount,
         ungroupedDocuments: ungrouped.length,
         lessors: Object.keys(hierarchy).length,
@@ -225,7 +234,7 @@ const groupDocumentsStep = createStep({
   },
 });
 
-// Create the workflow
+// Create the workflow with foreach for per-document processing
 export const organizeDocumentsWorkflow = createWorkflow({
   id: 'organize-documents',
   description: 'Read, classify, extract, and group lease documents',
@@ -233,7 +242,7 @@ export const organizeDocumentsWorkflow = createWorkflow({
   outputSchema: workflowOutputSchema,
 })
   .then(readDocumentsStep)
-  .then(processDocumentsStep)
+  .foreach(processDocumentStep, { concurrency: 1 }) // Sequential processing, one at a time
   .then(groupDocumentsStep)
   .commit();
 
