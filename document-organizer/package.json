@@ -8,6 +8,7 @@
     "build": "mastra build",
     "start": "mastra start",
     "organize": "tsx src/cli.ts",
+    "chat": "tsx src/chat.ts",
     "preinstall": "node --version | grep -q 'v20.19.6' || (echo 'Error: Node.js v20.19.6 required' && exit 1)"
   },
   "keywords": [],
