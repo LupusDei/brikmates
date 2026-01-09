@@ -7,7 +7,7 @@
     "dev": "mastra dev",
     "build": "mastra build",
     "start": "mastra start",
-    "organize": "node --import ./loader.mjs src/cli.ts",
+    "organize": "tsx src/cli.ts",
     "preinstall": "node --version | grep -q 'v20.19.6' || (echo 'Error: Node.js v20.19.6 required' && exit 1)"
   },
   "keywords": [],
@@ -31,6 +31,7 @@
     "@types/node": "^22.0.0",
     "@types/string-similarity": "^4.0.2",
     "mastra": "^0.18.9",
+    "tsx": "^4.21.0",
     "typescript": "^5.6.0",
     "vitest": "^3.2.4"
   }
