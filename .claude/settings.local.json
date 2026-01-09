@@ -3,7 +3,8 @@
     "allow": [
       "Bash(bd init:*)",
       "Bash(npx mastra build)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "WebSearch"
     ]
   }
 }

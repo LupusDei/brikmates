@@ -1,5 +1,4 @@
 import { Agent } from '@mastra/core/agent';
-import { anthropic } from '@ai-sdk/anthropic';
 import { z } from 'zod';
 
 // Zod schema for extracted lease document keys
@@ -75,7 +74,7 @@ For amendments and related documents:
 
 Be precise and extract exactly what is written in the document.
 If a field cannot be found, use "unknown" as the value.`,
-  model: anthropic('claude-3-7-sonnet-20250219'),
+  model: 'anthropic/claude-sonnet-4-20250514',
 });
 
 // Extract keys from document text with structured output
