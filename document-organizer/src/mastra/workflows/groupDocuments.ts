@@ -2,6 +2,7 @@ import { compareTwoStrings } from 'string-similarity';
 import { classifyDocument, ClassificationResult, DocumentType } from '../agents/classifier.js';
 import { extractKeys, ExtractionResult } from '../agents/extractor.js';
 import { readDocsTool } from '../tools/readFiles.js';
+import { DocumentCache } from '../utils/cache.js';
 
 // Similarity threshold for fuzzy matching (80%)
 const SIMILARITY_THRESHOLD = 0.8;
@@ -67,24 +68,51 @@ function findFuzzyMatch(needle: string, haystack: string[]): string | null {
 
 /**
  * Process a single document: classify and extract keys in parallel
+ * Uses cache to avoid reprocessing documents with the same content
  */
 async function processDocument(
   id: string,
   filename: string,
-  content: string
-): Promise<ProcessedDocument> {
+  content: string,
+  cache?: DocumentCache
+): Promise<{ doc: ProcessedDocument; fromCache: boolean }> {
+  // Check cache first
+  if (cache) {
+    const cached = cache.get(content);
+    if (cached) {
+      return {
+        doc: {
+          id,
+          filename,
+          classification: cached.classification,
+          extraction: cached.extraction,
+          content,
+        },
+        fromCache: true,
+      };
+    }
+  }
+
   // Run classification and extraction in parallel
   const [classification, extraction] = await Promise.all([
     classifyDocument(content),
     extractKeys(content),
   ]);
 
+  // Save to cache
+  if (cache) {
+    cache.set(content, classification, extraction);
+  }
+
   return {
-    id,
-    filename,
-    classification,
-    extraction,
-    content,
+    doc: {
+      id,
+      filename,
+      classification,
+      extraction,
+      content,
+    },
+    fromCache: false,
   };
 }
 
@@ -185,6 +213,11 @@ function groupDocuments(documents: ProcessedDocument[]): GroupingResult {
  * Main workflow: Read documents from folder, process, and group
  */
 export async function organizeDocuments(folderPath: string): Promise<GroupingResult> {
+  // Initialize document cache
+  const cache = new DocumentCache();
+  const cacheStats = cache.stats();
+  console.log(`Document cache loaded: ${cacheStats.entries} cached entries`);
+
   // Read all documents from the folder
   const readResult = await readDocsTool.execute({
     context: { folderPath },
@@ -213,29 +246,41 @@ export async function organizeDocuments(folderPath: string): Promise<GroupingRes
 
   // Process documents sequentially to avoid rate limits
   const processedDocs: ProcessedDocument[] = [];
+  let cacheHits = 0;
+
   for (let i = 0; i < readResult.documents.length; i++) {
     const doc = readResult.documents[i];
     console.log(`\n${'='.repeat(50)}`);
     console.log(`Processing (${i + 1}/${readResult.documents.length}): ${doc.filename}`);
     console.log(`${'='.repeat(50)}`);
 
-    const processed = await processDocument(
+    const { doc: processed, fromCache } = await processDocument(
       doc.id,
       doc.filename,
-      typeof doc.content === 'string' ? doc.content : JSON.stringify(doc.content)
+      typeof doc.content === 'string' ? doc.content : JSON.stringify(doc.content),
+      cache
     );
     processedDocs.push(processed);
+
+    if (fromCache) {
+      cacheHits++;
+      console.log(`  [CACHED] Using cached results`);
+    }
 
     console.log(`  Type: ${processed.classification.documentType}`);
     console.log(`  Lessor: ${processed.extraction.lessor}`);
     console.log(`  Address: ${processed.extraction.address}`);
 
-    // Sleep between documents to avoid rate limiting (skip for last document)
-    if (i < readResult.documents.length - 1) {
+    // Skip rate limit delay for cached results or last document
+    if (!fromCache && i < readResult.documents.length - 1) {
       console.log(`  Waiting ${RATE_LIMIT_DELAY_MS / 1000}s before next document...`);
       await sleep(RATE_LIMIT_DELAY_MS);
     }
   }
+
+  // Save cache to disk
+  cache.save();
+  console.log(`\nCache stats: ${cacheHits}/${readResult.documents.length} documents from cache`);
 
   // Group the processed documents
   return groupDocuments(processedDocs);
