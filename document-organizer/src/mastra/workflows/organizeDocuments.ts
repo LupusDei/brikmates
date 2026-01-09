@@ -8,11 +8,8 @@ import { readDocsTool } from '../tools/readFiles.js';
 // Similarity threshold for fuzzy matching (80%)
 const SIMILARITY_THRESHOLD = 0.8;
 
-// Rate limit delay between documents (30 seconds)
-const RATE_LIMIT_DELAY_MS = 30000;
-
-// Helper to sleep for a given number of milliseconds
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// Maximum content preview length for suspend payload
+const CONTENT_PREVIEW_LENGTH = 500;
 
 // Schema for workflow input
 const workflowInputSchema = z.object({
@@ -66,6 +63,33 @@ const workflowStateSchema = z.object({
 
 type WorkflowState = z.infer<typeof workflowStateSchema>;
 
+// Schema for suspend payload - shows processed doc and next doc preview
+const suspendPayloadSchema = z.object({
+  message: z.string(),
+  processedDocument: z.object({
+    filename: z.string(),
+    documentType: z.string(),
+    confidence: z.string(),
+    lessor: z.string(),
+    address: z.string(),
+    tenant: z.string(),
+    baseReference: z.string().optional(),
+  }),
+  nextDocument: z.object({
+    filename: z.string(),
+    contentPreview: z.string(),
+  }).nullable(),
+  progress: z.object({
+    current: z.number(),
+    total: z.number(),
+  }),
+});
+
+// Schema for resume data - user confirmation to continue
+const resumeDataSchema = z.object({
+  continue: z.boolean().describe('Set to true to process the next document'),
+});
+
 // Step 1: Read documents from folder and initialize state
 const readDocumentsStep = createStep({
   id: 'read-documents',
@@ -112,10 +136,10 @@ const readDocumentsStep = createStep({
 });
 
 // Step 2: Process a single document at currentIndex
-// This step is called repeatedly via dowhile until all documents are processed
+// This step suspends after processing to await user confirmation before continuing
 const processNextDocumentStep = createStep({
   id: 'process-document',
-  description: 'Process the next document in the queue',
+  description: 'Process the next document in the queue (human-in-the-loop)',
   inputSchema: z.object({
     ready: z.boolean(),
     documentCount: z.number(),
@@ -127,7 +151,9 @@ const processNextDocumentStep = createStep({
     filename: z.string(),
   }),
   stateSchema: workflowStateSchema,
-  execute: async ({ state, setState }) => {
+  suspendSchema: suspendPayloadSchema,
+  resumeSchema: resumeDataSchema,
+  execute: async ({ state, setState, resumeData, suspend }) => {
     const { documents, currentIndex, totalDocuments, processedDocs } = state;
 
     // Check if we have more documents to process
@@ -137,6 +163,19 @@ const processNextDocumentStep = createStep({
         currentIndex,
         totalDocuments,
         filename: '',
+      };
+    }
+
+    // Check if we're resuming from a suspend (user confirmed to continue)
+    // If resumeData exists but continue is false, we still need to process
+    // The suspend happens AFTER processing, so resumeData means we already processed this doc
+    if (resumeData?.continue === true) {
+      // User confirmed - just return the current state to let dowhile continue
+      return {
+        processed: true,
+        currentIndex,
+        totalDocuments,
+        filename: documents[currentIndex - 1]?.filename || '',
       };
     }
 
@@ -177,12 +216,38 @@ const processNextDocumentStep = createStep({
       processedDocs: newProcessedDocs,
     });
 
-    // Sleep to avoid rate limiting (only if there are more documents)
+    // If there are more documents, suspend and wait for user confirmation
     if (newIndex < totalDocuments) {
-      console.log(`  Waiting ${RATE_LIMIT_DELAY_MS / 1000}s before next document...`);
-      await sleep(RATE_LIMIT_DELAY_MS);
+      const nextDoc = documents[newIndex];
+      const contentPreview = nextDoc.content.length > CONTENT_PREVIEW_LENGTH
+        ? nextDoc.content.substring(0, CONTENT_PREVIEW_LENGTH) + '...'
+        : nextDoc.content;
+
+      console.log(`\n  Awaiting user confirmation to process next document...`);
+
+      return suspend({
+        message: `Processed document ${newIndex}/${totalDocuments}. Ready to process next document.`,
+        processedDocument: {
+          filename: doc.filename,
+          documentType: classification.documentType,
+          confidence: classification.confidence,
+          lessor: extraction.lessor,
+          address: extraction.address,
+          tenant: extraction.tenant,
+          baseReference: extraction.baseReference,
+        },
+        nextDocument: {
+          filename: nextDoc.filename,
+          contentPreview,
+        },
+        progress: {
+          current: newIndex,
+          total: totalDocuments,
+        },
+      });
     }
 
+    // No more documents - return completion
     return {
       processed: true,
       currentIndex: newIndex,
