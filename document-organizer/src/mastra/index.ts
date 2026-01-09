@@ -15,6 +15,7 @@ import { documentOrganizerAgent } from './agents/documentOrganizer.js';
 
 // Import tools (exported for use in workflows)
 export { readDocsTool } from './tools/readFiles.js';
+export { leaseQueryTool } from './tools/leaseQueryTool.js';
 
 // Import workflows
 import { organizeDocumentsWorkflow } from './workflows/organizeDocuments.js';
@@ -32,6 +33,15 @@ export {
   type LeaseFile,
   type ProcessedDocument,
 } from './workflows/groupDocuments.js';
+
+// Export lease query API for direct usage
+export {
+  LeaseQuery,
+  saveGroupingResult,
+  loadGroupingResult,
+  type LeaseSummary,
+  type LeaseDetails,
+} from './utils/leaseQuery.js';
 
 // Export the document organizer agent for direct usage
 export { documentOrganizerAgent } from './agents/documentOrganizer.js';
