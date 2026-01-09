@@ -11,7 +11,7 @@ import { LibSQLStore } from '@mastra/libsql';
 // Import agents
 import { classifierAgent } from './agents/classifier.js';
 import { extractorAgent } from './agents/extractor.js';
-import { leaseAgent, documentOrganizerAgent } from './agents/leaseAgent.js';
+import { leaseAgent } from './agents/leaseAgent.js';
 
 // Import tools (exported for use in workflows)
 export { readDocsTool } from './tools/readFiles.js';
@@ -43,8 +43,8 @@ export {
   type LeaseDetails,
 } from './utils/leaseQuery.js';
 
-// Export the lease agent (primary) and documentOrganizerAgent (backward compat alias)
-export { leaseAgent, documentOrganizerAgent } from './agents/leaseAgent.js';
+// Export the lease agent
+export { leaseAgent } from './agents/leaseAgent.js';
 
 // Configure Mastra instance with observability
 export const mastra = new Mastra({
@@ -52,8 +52,6 @@ export const mastra = new Mastra({
     classifierAgent,
     extractorAgent,
     leaseAgent,
-    // Backward compatibility alias
-    documentOrganizerAgent,
   },
   workflows: {
     organizeDocumentsWorkflow,

@@ -2,7 +2,7 @@
 import 'dotenv/config';
 import * as readline from 'readline';
 import type { CoreMessage } from 'ai';
-import { documentOrganizerAgent } from './mastra/index.js';
+import { leaseAgent } from './mastra/index.js';
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -23,7 +23,7 @@ function prompt(question: string): Promise<string> {
 async function chat(userMessage: string): Promise<string> {
   messages.push({ role: 'user', content: userMessage });
 
-  const response = await documentOrganizerAgent.generate(messages);
+  const response = await leaseAgent.generate(messages);
 
   const assistantMessage = response.text;
   messages.push({ role: 'assistant', content: assistantMessage });
@@ -39,10 +39,10 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('Document Organizer Agent');
-  console.log('========================');
-  console.log('Chat with me about organizing your lease documents.');
-  console.log('I can process documents in a folder and explain the results.');
+  console.log('Lease Agent');
+  console.log('===========');
+  console.log('Chat with me about your lease documents.');
+  console.log('I can import, organize, and query lease files.');
   console.log('Type "exit" or "quit" to end the conversation.\n');
 
   // Check for initial message from command line

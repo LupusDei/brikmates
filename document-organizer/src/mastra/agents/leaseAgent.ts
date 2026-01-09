@@ -90,6 +90,3 @@ Use the **read_docs** tool to preview documents in a folder without processing t
     query_leases: leaseQueryTool,
   },
 });
-
-// Keep backward compatibility alias
-export const documentOrganizerAgent = leaseAgent;
