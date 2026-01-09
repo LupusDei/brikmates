@@ -19,7 +19,7 @@ const workflowInputSchema = z.object({
   folderPath: z.string().describe('Path to folder containing documents'),
 });
 
-// Schema for a single document (input to foreach)
+// Schema for a single document
 const documentSchema = z.object({
   id: z.string(),
   filename: z.string(),
@@ -56,14 +56,30 @@ const workflowOutputSchema = z.object({
   }),
 });
 
-// Step 1: Read documents from folder and return array for foreach
+// Workflow state schema - tracks documents queue and processed results
+const workflowStateSchema = z.object({
+  documents: z.array(documentSchema),
+  currentIndex: z.number(),
+  totalDocuments: z.number(),
+  processedDocs: z.array(processedDocumentSchema),
+});
+
+type WorkflowState = z.infer<typeof workflowStateSchema>;
+
+// Step 1: Read documents from folder and initialize state
 const readDocumentsStep = createStep({
   id: 'read-documents',
-  description: 'Read all documents from the specified folder',
+  description: 'Read all documents and initialize processing queue',
   inputSchema: workflowInputSchema,
-  outputSchema: z.array(documentSchema),
-  execute: async ({ inputData }) => {
+  outputSchema: z.object({
+    ready: z.boolean(),
+    documentCount: z.number(),
+  }),
+  stateSchema: workflowStateSchema,
+  execute: async ({ inputData, setState }) => {
+    console.log(`\n${'='.repeat(60)}`);
     console.log(`Reading documents from: ${inputData.folderPath}`);
+    console.log(`${'='.repeat(60)}`);
 
     const result = await readDocsTool.execute({
       context: { folderPath: inputData.folderPath },
@@ -72,32 +88,68 @@ const readDocumentsStep = createStep({
       runtimeContext: {} as any,
     });
 
-    console.log(`Found ${result.count} documents to process`);
-
-    return result.documents.map(doc => ({
+    const documents = result.documents.map(doc => ({
       id: doc.id,
       filename: doc.filename,
       content: typeof doc.content === 'string' ? doc.content : JSON.stringify(doc.content),
     }));
+
+    console.log(`Found ${documents.length} documents to process`);
+
+    // Initialize workflow state
+    setState({
+      documents,
+      currentIndex: 0,
+      totalDocuments: documents.length,
+      processedDocs: [],
+    });
+
+    return {
+      ready: documents.length > 0,
+      documentCount: documents.length,
+    };
   },
 });
 
-// Step 2: Process a SINGLE document (used with foreach)
-// This step is executed once per document, with visibility in Mastra Studio
-const processDocumentStep = createStep({
+// Step 2: Process a single document at currentIndex
+// This step is called repeatedly via dowhile until all documents are processed
+const processNextDocumentStep = createStep({
   id: 'process-document',
-  description: 'Classify and extract keys from a single document',
-  inputSchema: documentSchema,
-  outputSchema: processedDocumentSchema,
-  execute: async ({ inputData }) => {
-    console.log(`\n${'='.repeat(50)}`);
-    console.log(`Processing: ${inputData.filename}`);
-    console.log(`${'='.repeat(50)}`);
+  description: 'Process the next document in the queue',
+  inputSchema: z.object({
+    ready: z.boolean(),
+    documentCount: z.number(),
+  }),
+  outputSchema: z.object({
+    processed: z.boolean(),
+    currentIndex: z.number(),
+    totalDocuments: z.number(),
+    filename: z.string(),
+  }),
+  stateSchema: workflowStateSchema,
+  execute: async ({ state, setState }) => {
+    const { documents, currentIndex, totalDocuments, processedDocs } = state;
+
+    // Check if we have more documents to process
+    if (currentIndex >= totalDocuments) {
+      return {
+        processed: false,
+        currentIndex,
+        totalDocuments,
+        filename: '',
+      };
+    }
+
+    const doc = documents[currentIndex];
+
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`Processing document ${currentIndex + 1}/${totalDocuments}: ${doc.filename}`);
+    console.log(`${'='.repeat(60)}`);
 
     // Run classification and extraction in parallel for this document
     const [classification, extraction] = await Promise.all([
-      classifyDocument(inputData.content),
-      extractKeys(inputData.content),
+      classifyDocument(doc.content),
+      extractKeys(doc.content),
     ]);
 
     console.log(`  Type: ${classification.documentType} (${classification.confidence})`);
@@ -108,15 +160,34 @@ const processDocumentStep = createStep({
       console.log(`  Base Reference: ${extraction.baseReference}`);
     }
 
-    // Sleep to avoid rate limiting
-    console.log(`  Waiting ${RATE_LIMIT_DELAY_MS / 1000}s before next document...`);
-    await sleep(RATE_LIMIT_DELAY_MS);
-
-    return {
-      id: inputData.id,
-      filename: inputData.filename,
+    // Add to processed docs
+    const newProcessedDocs = [...processedDocs, {
+      id: doc.id,
+      filename: doc.filename,
       classification,
       extraction,
+    }];
+
+    // Update state: increment index and add processed doc
+    const newIndex = currentIndex + 1;
+    setState({
+      documents,
+      currentIndex: newIndex,
+      totalDocuments,
+      processedDocs: newProcessedDocs,
+    });
+
+    // Sleep to avoid rate limiting (only if there are more documents)
+    if (newIndex < totalDocuments) {
+      console.log(`  Waiting ${RATE_LIMIT_DELAY_MS / 1000}s before next document...`);
+      await sleep(RATE_LIMIT_DELAY_MS);
+    }
+
+    return {
+      processed: true,
+      currentIndex: newIndex,
+      totalDocuments,
+      filename: doc.filename,
     };
   },
 });
@@ -131,19 +202,29 @@ function findFuzzyMatch(needle: string, haystack: string[]): string | null {
   return null;
 }
 
-// Step 3: Group documents by lessor -> address -> leaseFile
+// Step 3: Group all processed documents
 const groupDocumentsStep = createStep({
   id: 'group-documents',
-  description: 'Group documents by lessor, address, and document type',
-  inputSchema: z.array(processedDocumentSchema),
+  description: 'Group all processed documents by lessor and address',
+  inputSchema: z.object({
+    processed: z.boolean(),
+    currentIndex: z.number(),
+    totalDocuments: z.number(),
+    filename: z.string(),
+  }),
   outputSchema: workflowOutputSchema,
-  execute: async ({ inputData }) => {
-    console.log(`\nGrouping ${inputData.length} processed documents...`);
+  stateSchema: workflowStateSchema,
+  execute: async ({ state }) => {
+    const { processedDocs } = state;
+
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`Grouping ${processedDocs.length} processed documents`);
+    console.log(`${'='.repeat(60)}`);
 
     const hierarchy: Record<string, Record<string, z.infer<typeof leaseFileSchema>>> = {};
     const ungrouped: string[] = [];
 
-    for (const doc of inputData) {
+    for (const doc of processedDocs) {
       const { lessor, address } = doc.extraction;
 
       // Skip documents with unknown lessor or address
@@ -224,7 +305,7 @@ const groupDocumentsStep = createStep({
       hierarchy,
       ungrouped,
       stats: {
-        totalDocuments: inputData.length,
+        totalDocuments: processedDocs.length,
         groupedDocuments: groupedCount,
         ungroupedDocuments: ungrouped.length,
         lessors: Object.keys(hierarchy).length,
@@ -234,15 +315,27 @@ const groupDocumentsStep = createStep({
   },
 });
 
-// Create the workflow with foreach for per-document processing
+// Create the workflow with state-based iteration
+// Each document processing is a separate visible step via dowhile
 export const organizeDocumentsWorkflow = createWorkflow({
   id: 'organize-documents',
   description: 'Read, classify, extract, and group lease documents',
   inputSchema: workflowInputSchema,
   outputSchema: workflowOutputSchema,
+  stateSchema: workflowStateSchema,
 })
   .then(readDocumentsStep)
-  .foreach(processDocumentStep, { concurrency: 1 }) // Sequential processing, one at a time
+  .dowhile(
+    processNextDocumentStep,
+    // Continue while there are more documents to process
+    async ({ state }) => {
+      const hasMore = state.currentIndex < state.totalDocuments;
+      if (hasMore) {
+        console.log(`\n→ More documents to process (${state.currentIndex}/${state.totalDocuments})`);
+      }
+      return hasMore;
+    }
+  )
   .then(groupDocumentsStep)
   .commit();
 
