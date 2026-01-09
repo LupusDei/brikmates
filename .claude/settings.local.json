@@ -5,7 +5,9 @@
       "Bash(npx mastra build)",
       "Bash(npx tsc:*)",
       "WebSearch",
-      "Bash(bd --no-db close:*)"
+      "Bash(bd --no-db close:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:mastra.ai)"
     ]
   }
 }
