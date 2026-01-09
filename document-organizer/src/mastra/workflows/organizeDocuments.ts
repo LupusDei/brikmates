@@ -75,10 +75,10 @@ const readDocumentsStep = createStep({
   },
 });
 
-// Step 2: Process documents (classify and extract in parallel)
+// Step 2: Process documents sequentially (one at a time to avoid rate limits)
 const processDocumentsStep = createStep({
   id: 'process-documents',
-  description: 'Classify and extract keys from all documents',
+  description: 'Classify and extract keys from all documents (sequential to avoid rate limits)',
   inputSchema: z.object({
     documents: z.array(z.object({
       id: z.string(),
@@ -91,21 +91,27 @@ const processDocumentsStep = createStep({
     processedDocs: z.array(processedDocumentSchema),
   }),
   execute: async ({ inputData }) => {
-    const processedDocs = await Promise.all(
-      inputData.documents.map(async (doc) => {
-        const [classification, extraction] = await Promise.all([
-          classifyDocument(doc.content),
-          extractKeys(doc.content),
-        ]);
+    const processedDocs: z.infer<typeof processedDocumentSchema>[] = [];
 
-        return {
-          id: doc.id,
-          filename: doc.filename,
-          classification,
-          extraction,
-        };
-      })
-    );
+    // Process documents one at a time to avoid rate limits
+    for (const doc of inputData.documents) {
+      console.log(`Processing document: ${doc.filename}`);
+
+      // Classification and extraction can still run in parallel for each doc
+      const [classification, extraction] = await Promise.all([
+        classifyDocument(doc.content),
+        extractKeys(doc.content),
+      ]);
+
+      processedDocs.push({
+        id: doc.id,
+        filename: doc.filename,
+        classification,
+        extraction,
+      });
+
+      console.log(`  -> Type: ${classification.documentType}, Lessor: ${extraction.lessor}`);
+    }
 
     return { processedDocs };
   },

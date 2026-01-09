@@ -205,16 +205,18 @@ export async function organizeDocuments(folderPath: string): Promise<GroupingRes
     };
   }
 
-  // Process all documents in parallel
-  const processedDocs = await Promise.all(
-    readResult.documents.map((doc) =>
-      processDocument(
-        doc.id,
-        doc.filename,
-        typeof doc.content === 'string' ? doc.content : JSON.stringify(doc.content)
-      )
-    )
-  );
+  // Process documents sequentially to avoid rate limits
+  const processedDocs: ProcessedDocument[] = [];
+  for (const doc of readResult.documents) {
+    console.log(`Processing document: ${doc.filename}`);
+    const processed = await processDocument(
+      doc.id,
+      doc.filename,
+      typeof doc.content === 'string' ? doc.content : JSON.stringify(doc.content)
+    );
+    processedDocs.push(processed);
+    console.log(`  -> Type: ${processed.classification.documentType}, Lessor: ${processed.extraction.lessor}`);
+  }
 
   // Group the processed documents
   return groupDocuments(processedDocs);
